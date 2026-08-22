@@ -1,0 +1,740 @@
+---
+title: "Depressive symptoms and associated factors among people living with HIV receiving antiretroviral therapy in Pokhara, Nepal: a cross-sectional study"
+author: "Khanal R"
+date: "2026-08-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Depressive symptoms and associated factors among people living with HIV receiving antiretroviral therapy in Pokhara, Nepal: a cross-sectional study
+
+## Objectives
+#### To determine the prevalence of depression among People Living with HIV (PLHIV) in Kaski District, Nepal.
+
+#### To identify the socio-demographic and behavioral factors associated with depression among PLHIV.
+
+## Methodology:
+
+#### This study used cross-sectional study design done with in an institutional setting at ART centre of Pokhara Academy of Health Science (PAHS). The ART centre at Pokhara Academy of Health Science is largest ART centre in Gandaki province which give regular services to approximately 1000 patient out of 2165 (9). The community-based sampling was not feasible due to lack of baseline on community-level sampling frame of PLHV, therefore institutional based study was performed. This study involved quantitative interview with using socio-demographic questionnaire and a tool for depression assessment. The study population comprised PLHV enrolled at the ART centre who attended the centre for ART services or routine follow-up, the data collection period was between February and March 2019.
+
+#### The eligibility participant were PLHIV aged ≥18 years who provided written informed consent to participate. If a participant did not meet the eligibility criteria, the next eligible client on the ART centre was approached and invited to participate in the study. The research proposal was submitted to the Nepal Health Research Council (NHRC) and received ethical clearence with national ethical guidelines for Health Research in Nepal through Expedited Review Procedure,undersubmission Reg no: 12/2019
+
+```{r loading the dataset and package}
+# Loading data and packages
+library(haven)
+library(dplyr)
+library(car)
+library(forcats)
+library(gtsummary)
+library(tidyverse)
+library(flextable)
+library(officer)
+library(purrr)
+library(ResourceSelection)
+library(pROC)
+library(logistf)
+```
+
+```{r loading dataset, subsetting required variables  }
+#"load the dataset "data2.rds" from your directory" 
+
+data1 <- read_rds("data2original.rds") #### 
+dataset <- data1 %>%
+  select(Sex, Age, Residence,Ethinicity,Religion,Marital_status,Family_type,Educational_status,Employment,Occupation,Monthly_income,Family_occupation,Family_income,Family_support,Alcohol_Use,Tobacco_consumption,Cigratte,Surti,Khaini,Gudkha,Drugs_12months,BID_score,Medication_depression,Spouse_support,Involvement_Family,Counseling_depression, Discrimination_Society )
+
+dataset_unique<-dataset
+view(dataset_unique)
+```
+
+
+
+```{r}
+####### Labelling Depression
+### Depression 16/17 cut-off (≥17), based on Kohrt BA, Kunz RD, Koirala NR, Sharma VD, Nepal MK. Validation of a Nepali version of the Beck Depression Inventory. Nepalese Journal of Psychiatry. 2002 Jan 1;2(4):123-30.
+
+dataset_unique$Depression_PLWHAS <- cut( 
+  dataset_unique$BID_score,
+  breaks = c(-Inf, 16, Inf),
+  labels = c("No Depression", "Depression"),
+  right = TRUE
+)
+
+summary(dataset_unique$Depression_PLWHAS)
+prop.table(table(dataset_unique$Depression_PLWHAS)) * 100
+nrow(dataset_unique)
+
+
+hist(dataset_unique$Age, breaks = seq(0, 100, by = 5))
+summary(dataset_unique$Monthly_income)
+hist(dataset_unique$Monthly_income, breaks = seq(0, 200000, by = 1000))
+# age is slightly skewed on right because we have participant from 18 yrs and monthly we less adolescent and youth rather than adult population due to decreasing incidence of new case of HIV/AIDS
+
+##  calculating 95% CI 
+
+x <- sum(dataset_unique$Depression_PLWHAS == "Depression", na.rm = TRUE)
+n <- sum(!is.na(dataset_unique$Depression_PLWHAS))
+
+ci <- prop.test(x, n, correct = FALSE)
+
+prev <- x / n * 100
+lower <- ci$conf.int[1] * 100
+upper <- ci$conf.int[2] * 100
+
+paste0(
+  round(prev, 1), "% (95% CI: ",
+  round(lower, 1), "–", round(upper, 1), "%)"
+)
+
+
+```
+
+```{r Re-labeling varibles}
+###Age in Catagory 49 below and above
+
+dataset_unique <- dataset_unique %>%
+  mutate(Age_group = case_when(
+    Age < 49 ~ "< 49",
+    Age >= 49 ~ "49 ≥",
+    TRUE ~ NA_character_
+  ))
+dataset_unique$Age_group <- factor(dataset_unique$Age_group, levels = c("< 49", "49 ≥"))
+
+####### Sex Male or Female
+
+dataset_unique$Sex <- factor(dataset_unique$Sex,
+                             levels = c("1", "2"),
+                             labels = c("Male", "Female"))
+dataset_unique$Sex <- relevel(dataset_unique$Sex,ref = "Female")
+
+#Male (115), Female (141)
+
+dataset_unique$Residence <- factor(dataset_unique$Residence,
+                                   levels = c("1", "2"),
+                                   labels = c("Rural", "Urban"))
+dataset_unique$Residence <- relevel(
+  dataset_unique$Residence,
+  ref = "Urban"
+)
+
+######### Ethnicity Dalit or Not
+
+dataset_unique$Ethinicity<-as.factor(dataset_unique$Ethinicity)
+
+dataset_unique$Ethnicity <- ifelse(dataset_unique$Ethinicity == 5, "Dalit", "Non-Dalit")
+dataset_unique$Ethnicity <- factor(dataset_unique$Ethnicity) #changing the spelling of ethinicity in to ethnicity 
+dataset_unique$Ethnicity <- relevel(dataset_unique$Ethnicity,ref = "Non-Dalit")
+
+######## Religion
+
+dataset_unique$Religion <- factor(dataset_unique$Religion,
+                                  levels = c("1", "2","4","5"),
+                                  labels = c("Hindu","Buddhist","Muslim","Christain"))
+
+
+
+#######Into 3 catagories
+dataset_unique <- dataset_unique %>%
+  mutate(
+    Marital_3cat = case_when(
+      Marital_status == 1 ~ "Unmarried",
+      Marital_status == 2 ~ "Married",
+      Marital_status %in% c(3, 4, 5) ~ "Divorced/Separated/Widowed",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  mutate(
+    # Set "Married" as reference category
+    Marital_3cat = factor(
+      Marital_3cat,
+      levels = c("Married", "Unmarried", "Divorced/Separated/Widowed")
+    )
+  )
+table(dataset_unique$Marital_3cat, useNA = "always")
+
+######## Family Type
+dataset_unique$Family_type <- factor(dataset_unique$Family_type,
+                                     levels = c("1", "2"),
+                                     labels = c("Joint", "Nuclear"))
+dataset_unique$Family_type<-as.factor(dataset_unique$Family_type)
+
+#######Educational Status
+
+
+dataset_unique$Educational_status <- as.numeric(dataset_unique$Educational_status)
+dataset_unique$Educational_status <- case_when(
+  dataset_unique$Educational_status == 1 ~ "Illiterate/Informal",
+  dataset_unique$Educational_status == 2 ~ "Illiterate/Informal",
+  dataset_unique$Educational_status %in% c(3, 4, 5, 6) ~ "Formal Education"
+)
+dataset_unique$Educational_status<-as.factor(dataset_unique$Educational_status)
+
+
+#########################################Employment Employed or Unemployed
+
+dataset_unique$Employment <- factor(dataset_unique$Employment,
+                                    levels = c("1", "2"),
+                                    labels = c("Un-employed", "Employed"))
+dataset_unique$Employment<-as.factor(dataset_unique$Employment)
+
+table(dataset_unique$Employment)
+############# Occupation
+table(dataset_unique$Occupation)
+dataset_unique$Occupation <- factor(dataset_unique$Occupation,
+                                       levels = c("1","4","5","6","7","8"),
+                                       labels = c("Business","Agriculture", "Labor","Service","Driving","Other"))
+
+dataset_unique$Occupation<-as.factor(dataset_unique$Occupation)
+
+dataset_unique$Occupation2 <- ifelse(
+  dataset_unique$Occupation == "Labor",
+  "Labor",
+  "Non-Labor"
+)
+
+dataset_unique$Occupation2 <- factor(
+  dataset_unique$Occupation2,
+  levels = c("Non-Labor", "Labor")
+)
+
+
+#################################################Family Income
+
+
+dataset_unique$Family_occupation<-factor(dataset_unique$Family_occupation,
+                                       levels = c("1","2","3","4","5","6","7","8"),
+                                       labels = c("Business","Agriculture", "Labor","Civil Service","Foreign employment","Pension","Driving","Other"))
+
+dataset_unique$Family_occupation <- as.factor(dataset_unique$Family_occupation)
+
+
+#### Family_occupation
+dataset_unique$Family_occupation2 <- case_when(
+  dataset_unique$Family_occupation == "Labor" ~ "Labor",
+  !is.na(dataset_unique$Family_occupation) ~ "Non-Labor",
+  TRUE ~ NA_character_
+)
+
+dataset_unique$Family_occupation2 <- factor(
+  dataset_unique$Family_occupation2,
+  levels = c("Non-Labor", "Labor")
+)
+
+###### Family Income
+
+
+dataset_unique$Family_income <- factor(dataset_unique$Family_income,
+                                       levels = c("1", "2","3"),
+                                       labels = c("10K below","10K to 50K", "More than 50K"))
+dataset_unique$Family_income<-as.factor(dataset_unique$Family_income)
+
+######### Monthly Income in Percentile
+
+percentiles <- quantile(dataset_unique$Monthly_income,
+                        probs = c(0.25, 0.5, 0.75),
+                        na.rm = TRUE)
+
+dataset_unique <- dataset_unique %>%
+  mutate(Income_percentile_category = case_when(
+    is.na(Monthly_income) ~ "No Income",
+    Monthly_income <= percentiles[1] ~ "Low Income",
+    Monthly_income <= percentiles[2] ~ "Lower-Middle Income",
+    Monthly_income <= percentiles[3] ~ "Upper-Middle Income",
+    Monthly_income > percentiles[3] ~ "High Income"
+  ))
+
+dataset_unique$Income_percentile_category <- factor(
+  dataset_unique$Income_percentile_category,
+  levels = c(
+    "High Income",
+    "Upper-Middle Income",
+    "Lower-Middle Income",
+    "Low Income"
+  )
+)
+
+
+#########Alcohol in Use
+
+
+dataset_unique$Alcohol_Use <- factor(dataset_unique$Alcohol_Use,
+                                     levels = c("1", "2"),
+                                     labels = c(" Yes ", " No "))
+dataset_unique$Alcohol_Use<-as.factor(dataset_unique$Alcohol_Use)
+
+#########Drug in Society
+
+
+dataset_unique$Drugs_12months <- factor(dataset_unique$Drugs_12months,
+                                        levels = c("1", "2"),
+                                        labels = c(" Yes ", " No ") )
+
+dataset_unique$Drugs_12months<-as.factor(dataset_unique$Drugs_12months)
+dataset_unique$Drugs_12months <- relevel(dataset_unique$Drugs_12months,ref = " No ")
+
+#####
+
+dataset_unique$Tobacco_consumption <- factor(
+  dataset_unique$Tobacco_consumption,
+  levels = c("1", "2"),
+  labels = c(" Yes ", " No ")
+)
+dataset_unique$Tobacco_consumption<-as.factor(dataset_unique$Tobacco_consumption)
+
+dataset_unique$Tobacco_consumption <- relevel(
+  dataset_unique$Tobacco_consumption,
+  ref = " No "
+)
+
+table(dataset_unique$Tobacco_consumption)
+# [1] "No" "Yes"
+
+#### smoking variable
+
+
+
+dataset_unique$Cigratte<-factor(dataset_unique$Cigratte,
+                                levels = c("1","2"),
+                                labels = c("Yes","No"))
+
+dataset_unique$Khaini<-factor(dataset_unique$Khaini,
+                                levels = c("1","2"),
+                                labels = c("Yes","No"))
+dataset_unique$Surti<-factor(dataset_unique$Surti,
+                                levels = c("1","2"),
+                                labels = c("Yes","No"))
+dataset_unique$Gudkha<-factor(dataset_unique$Gudkha,
+                                levels = c("1","2"),
+                                labels = c("Yes","No"))
+
+dataset_unique <- dataset_unique %>%
+  mutate(
+    Smokeless = if_else(
+      Khaini == "Yes" |
+      Gudkha == "Yes" |
+      Surti == "Yes",
+      "Yes", "No",
+      missing = "No"
+    ),
+
+    Tobacco_type = case_when(
+      # No tobacco use
+      (Cigratte == "No" | is.na(Cigratte)) &
+      Smokeless == "No" ~ "No tobacco product",
+
+      # Smoking only
+      Cigratte == "Yes" &
+      Smokeless == "No" ~ "Smoking only",
+
+      # Smokeless tobacco only
+      (Cigratte == "No" | is.na(Cigratte)) &
+      Smokeless == "Yes" ~ "Tobacco product",
+
+      # Both cigarette and smokeless
+      Cigratte == "Yes" &
+      Smokeless == "Yes" ~ "Both",
+
+      TRUE ~ "No tobacco product"
+    )
+  )
+
+dataset_unique$Tobacco_type <- factor(
+  dataset_unique$Tobacco_type,
+  levels = c(
+    "No tobacco product",
+    "Smoking only",
+    "Tobacco product",
+    "Both"
+  )
+)
+
+table(dataset_unique$Tobacco_type, useNA = "ifany")
+
+
+#### Income in catagories
+
+
+dataset_unique <- dataset_unique %>%
+  mutate(
+    Income_group = case_when(
+      Income_percentile_category == "High Income" ~ "High Income",
+      Income_percentile_category %in% c("Upper-Middle Income",
+                                        "Lower-Middle Income") ~ "Middle Income",
+      Income_percentile_category == "Low Income" ~ "Lower Income",
+      is.na(Income_percentile_category) ~ "No income"
+    )
+  )
+
+
+dataset_unique <- dataset_unique %>%
+  mutate(
+    Income_group2 = case_when(
+      Income_percentile_category == "High Income" ~ "High",
+      Income_percentile_category %in% c("Upper-Middle Income",
+                                        "Lower-Middle Income") ~ "High",
+      Income_percentile_category == "Low Income" ~ "Low/No",
+      is.na(Income_percentile_category) ~ "Low/No"
+    )
+  )
+
+dataset_unique$Income_group2 <- factor(
+  dataset_unique$Income_group2,
+  levels = c("High", "Low/No"),
+  labels = c(">10000", "≤ 10,000")
+)
+table(dataset_unique$Income_group2)
+
+dataset_unique$Medication_depression <- factor(dataset_unique$Medication_depression,
+                                        levels = c("1", "2"),
+                                        labels = c(" Yes ", " No "))
+
+dataset_unique$Medication_depression<-as.factor(dataset_unique$Medication_depression)
+
+
+
+#########Family Support
+
+
+dataset_unique$Family_support <- factor(dataset_unique$Family_support,
+                                        levels = c("1", "2"),
+                                        labels = c(" Yes ", " No "))
+dataset_unique$Family_support<-as.factor(dataset_unique$Family_support)
+
+
+
+dataset_unique$Family_support<-as.factor(dataset_unique$Family_support)
+
+#########Spouse Support
+
+dataset_unique$Spouse_support<-factor(dataset_unique$Spouse_support,
+                                        levels = c("1", "2"),
+                                        labels = c(" Yes ", " No "))
+
+dataset_unique$Spouse_support<-as.factor(dataset_unique$Spouse_support)
+
+#### Family involvement
+
+dataset_unique$Involvement_Family<-factor(dataset_unique$Involvement_Family, 
+                                          levels = c("1", "2"),
+                                        labels = c(" Yes ", " No "))
+dataset_unique$Involvement_Family<-as.factor(dataset_unique$Involvement_Family)
+
+dataset_unique$Discrimination_Society<-factor(dataset_unique$Discrimination_Society, 
+                                          levels = c("1", "2"),
+                                        labels = c(" Yes ", " No "))
+
+dataset_unique$Discrimination_Society <- relevel(
+  dataset_unique$Discrimination_Society,
+  ref = " No "
+)
+
+
+```
+
+```{r Depression Prevalance based on BID Tool}
+
+#### 
+table(data1$Depression_PLWHAS)
+
+Depression_Table <- dataset_unique %>%
+  select(Depression_PLWHAS,Depression_PLWHAS,BID_score)%>%
+  tbl_summary(
+    missing = "no"
+  ) %>%
+  italicize_levels() %>%
+  modify_caption("Depression Prevalance")
+
+Depression_Table
+
+summary_flex <- as_flex_table(Depression_Table)
+
+read_docx() %>%
+  body_add_flextable(summary_flex) %>%
+  print(target = "Depression_Table.docx")
+```
+
+#### Table 1 presents the prevalence of depressive symptoms among the study participants. Of the total 256 participants, 19.1% (95% CI: 14.8–24.4%) (n = 49) had depressive symptoms, while 80.9% (n = 207) did not have depressive symptoms. The median BDI score of total participant was 8 with Q1 was 4 and Q3 was 14.
+
+
+```{r Descriptive Summary of Participants}
+####
+table(dataset_unique$Occupation2)
+
+SocioDemographicTable <- dataset_unique %>%
+  select(Sex,Age,Age_group, Residence,Ethnicity,Religion,Marital_3cat,Family_type,
+    Educational_status,Employment,Monthly_income,Income_group2,Income_group2,Occupation,
+    Family_occupation,Family_income,Family_support,Spouse_support,Discrimination_Society,Tobacco_type,Alcohol_Use,Drugs_12months,Medication_depression )%>%
+  tbl_summary(
+    missing = "no"
+  ) %>%
+  italicize_levels() %>%
+  modify_caption("Table 1. Socio-demographic Characteristics of Participants")
+
+SocioDemographicTable
+
+summary_flex <- as_flex_table(SocioDemographicTable)
+
+read_docx() %>%
+  body_add_flextable(summary_flex) %>%
+  print(target = "SocioDemographic_Characteristics.docx")
+
+
+```
+####Among the 278 participants recruited, 22 were non-respondents, resulting in a non-response rate of approximately 8%. Among the 256 respondents who included in the study, 55.0% (n = 141) were female. The median age of the participants was 40 years (Q1 = 34, Q3 = 49). More than three-quarters of the participants 191 (75%) were aged below 49 years. The majority of the respondents 84.4% (n = 216) resided in urban areas since ART centre was in city. More than three-quarters of the participants 79.3% (n = 203) belonged to non-Dalit caste groups, whereas 20.7% (n = 53) were Dalit. The majority of the participants were Hindu 77.0% (n = 197). In marital status, nearly two-thirds of the participants 64.5% (n = 165) were married followed by 24.3% Divorced/separated/widowed status. More than three-fifths of the participants 61.3% (n = 157) lived in nuclear families. Regarding educational status, approximately one-third of the participants 30.1% (n = 77) were illiterate or had only informal education.
+
+####Among total participant, 71% (n= 181) of participant were employed, the median (Q2) of participant monthly income was 15,000 Nepali Rupees Paisa (NRP), Q1 was 10000 NRP and Q3 was 20,000 NRP. Approximately 54% of participants had a monthly income below or equal to Q1 cut-off (NRP 10,000). Among employed participant, majority had occupation of Business 29% (n= 52) followed by Labor 25% (n= 46).  Similarly, the most common family occupation was Business 21% (n=55) followed by Agriculture 20% (n=50). Regarding monthly family income, the majority of participant 84%, (n = 216) reported an income between NRP 10,000 and 50,000 and followed by 9.4% (n = 24) with a below NRP 10,000, while 6.3% (n = 16) reported a income of more than NRP 50,000.
+
+
+####Only 11% of participants (n = 28) reported perceiving family support, whereas the majority (89%, n = 228) reported not perceiving family support. Similarly, among married participant (n=165), only 3.6% (n=6) reported perceived support from spouse whereas most 96% (n=159) participant reported no perceived support from spouse. Only 7% (n=18) participant reported involvement in family events whereas 93% (n=238) not reported involvement in family events. On the other hand, 22% (n =57) participant reported perceived discrimination in society while the remaining 78% (n=199)  did not.  Majority of Participant 65% (n= 166) report not consuming current tobacco, whereas 18% (n= 45) were smokers and 15% (n= 37) used smokeless tobacco and 2.7% (n= 7) consumed both smoked and smokeless tobacco products. Most participants 78% (n = 199) were not current alcohol consumers. Similarly, the vast majority of participants 96% ( n = 246) reported not using any addictive drugs during the past 12 months, while only 3.9% (n = 10) reported drug use during 12 months. And only 5.5% of participants (n = 14) reported currently taking medication for depression. 
+
+
+
+
+```{r Test of association, echo=TRUE,message=FALSE, warning=FALSE}
+vars_to_test <- c("Sex", "Age_group","Residence", "Ethnicity", "Marital_3cat", 
+         "Educational_status", "Employment","Income_group2","Occupation2","Family_occupation2","Family_income" 
+          ,"Alcohol_Use", "Drugs_12months","Tobacco_consumption","Medication_depression","Family_support","Spouse_support","Involvement_Family","Discrimination_Society")
+for (var in vars_to_test) {
+  cat("\n=====================================================\n")
+  cat("Testing: Depression_PLWHAS vs", var, "\n")
+  
+  # Create contingency table
+  tbl <- table(dataset_unique$Depression_PLWHAS, dataset_unique[[var]])
+# Decide test type based on expected counts
+  test_type <- if (any(chisq.test(tbl)$expected < 5)) "Fisher" else "Chi-square"
+  
+  if (test_type == "Chi-square") {
+    test_result <- chisq.test(tbl)
+    cat("Test Used: Chi-square\n")
+  } else {
+    test_result <- fisher.test(tbl)
+    cat("Test Used: Fisher’s Exact Test\n")
+  }
+  # Print result
+  cat("P-value:", round(test_result$p.value, 4), "\n")
+  
+  if (test_result$p.value < 0.05) {
+    cat("=> Significant association (p < 0.05)\n")
+  } else {
+    cat("=> Not significant (p >= 0.05)\n")
+  }
+}
+
+Associationtest <- dataset_unique %>%
+  select(Sex, Age_group, Residence, Ethnicity, Marital_3cat, 
+         Educational_status, Employment,Income_group2,Occupation2,Family_income,Family_occupation2, Alcohol_Use,Drugs_12months,Tobacco_consumption,Family_support,Spouse_support,Involvement_Family,Discrimination_Society ,Depression_PLWHAS) %>%
+  tbl_summary(
+    missing = "no", 
+    by = Depression_PLWHAS  # Stratify by exposure variable
+  ) %>%
+  add_p() %>%
+  italicize_levels() %>%
+  modify_caption("Participant Characteristics by Depression Status")
+
+summary_flex <- as_flex_table(Associationtest)
+Associationtest
+read_docx() %>%
+  body_add_flextable(summary_flex) %>%
+  body_add_par(" ", style = "Normal") %>%  
+  print(target = "Patient_Characteristics.docx")  
+
+```
+
+#### Test of Association: From chi-square test and fisher's exact test, we found that variable Ethnicity (p = 0.002), Marital status (p = 0.001), Monthly Income (p = 0.041), Occupation of participant (p = 0.002),Family Occupation (p = 0.023), Current Tobacco Consumption (p = 0.001), Perceived Spouse Support (p=0.028) and Perceived Discrimination in society (p = 0.001). However other factor like Sex (p = 0.056 ), Age group (p = 0.9 ), Educational Status (p = 0.14), Residence (p = 0.14), Employment Status (p = 0.4), Family income (p = 0.20 ), Current use ( p = 0.9), Drug Use in 12 months ( p = 0.10), Family Support (p = 0.7) and Involvement in Family events ( p = 0.4) were not statistically significant from Pearson's Chi-squared test or Fisher's exact test
+```{r Regression Model Building}
+
+# Model 1 :Initial Variable of Regression Modelling: Ethnicity (p = 0.002), Marital status (p = 0.001), Monthly Income (p = 0.041),Family Occupation (p = 0.023), Tobacco Consumption (p = 0.001), Perceived Spouse Support (p=0.028) and Perceived Discrimination in society (p = 0.001). Occupation of participant (p = 0.002) is excluded since it 75 observation will be missing since occupation represent only employed participants.
+
+# 
+model1 <- glm(Depression_PLWHAS ~ Ethnicity + Marital_3cat + Income_group2 + Family_occupation2 + Tobacco_consumption + Discrimination_Society  , data = dataset_unique, family = binomial())
+
+
+# Other variable below (p  < 0.20) which Sex (p = 0.056 ), Educational Status (p = 0.14), Drug Use in 12 months ( p = 0.10) were independently introduced to model 1, clinical important variable Age was also introduced 
+
+
+# Model 2 including Sex in model 1 
+model2 <- glm(Depression_PLWHAS ~ Sex + Ethnicity + Marital_3cat + Income_group2 + Family_occupation2 + Tobacco_consumption + Discrimination_Society  , data = dataset_unique, family = binomial())
+
+
+
+# Model 3 including Education Status in model1 
+model3 <- glm(Depression_PLWHAS ~ Educational_status + Ethnicity + Marital_3cat + Income_group2 + Family_occupation2 + Tobacco_consumption + Discrimination_Society  , data = dataset_unique, family = binomial())
+
+
+# Model 4 including Drug Use in model1
+model4 <- glm(Depression_PLWHAS ~ Drugs_12months + Ethnicity + Marital_3cat + Income_group2 + Family_occupation2 + Tobacco_consumption + Discrimination_Society  , data = dataset_unique, family = binomial())
+
+
+#Model 5 including Residence in model1
+
+model5 <- glm(Depression_PLWHAS ~ Residence + Ethnicity + Marital_3cat + Income_group2 + Family_occupation2 + Tobacco_consumption + Discrimination_Society  , data = dataset_unique, family = binomial())
+
+
+# Model 6 including Age group in model1 
+model6 <- glm(Depression_PLWHAS ~ Age_group + Ethnicity + Marital_3cat + Income_group2 + Family_occupation2 + Tobacco_consumption + Discrimination_Society  , data = dataset_unique, family = binomial())
+
+
+AIC(model1,model2,model3,model4,model5,model6)
+
+#  AIC(model1,model2,model3,model4,model5,model6)
+      # df #AIC
+#AIC(model1,model2,model3,model4,model5,model6)
+#       df      AIC
+#model1  8 215.5767
+#model2  9 215.9939
+#model3  9 217.1641
+#model4  9 215.2154 #model 4 is best, based on low AIC however Drug Use participant are lower 
+#model5  9 215.4238 # model 5 is second best after model 4, residence can be a important variable
+#model6  9 217.4733
+
+# best on AIC model4 (drug use) and model5 (residence) has lowest AIC 
+anova(model1, model4, test = "Chisq")
+anova(model1, model5, test = "Chisq")
+
+# both model are not statisticall different to model1 while adding confounding variable drug use (p= 0.1244) and residence (p = 0.1423).
+
+
+exp(cbind(OR = coef(model5), confint(model5)))
+exp(cbind(OR = coef(model4), confint(model4)))
+
+# Since Sex is a clinically important however itself it is not significant it a confounder 
+model8 <- glm(Depression_PLWHAS ~ Sex + Drugs_12months + Ethnicity + Marital_3cat + Income_group2 + Family_occupation2 + Tobacco_consumption + Discrimination_Society  , data = dataset_unique, family = binomial())
+summary(model8)
+
+# AIC: 215.38
+
+vif(model8)
+# All Adjusted GVIF are < 2.5.
+# "No evidence of multicollinearity was observed, with all GVIF-adjusted values below 1.28."
+
+
+
+dep_numeric <- as.numeric(dataset_unique$Depression_PLWHAS) - 1
+table(dataset_unique$Depression_PLWHAS, dep_numeric)
+library(ResourceSelection)
+
+hoslem.test(
+  dep_numeric,
+  fitted(model8)
+)
+
+#The Hosmer–Lemeshow goodness-of-fit test indicated adequate calibration of the final logistic regression model (χ² = 8.2768, df = 8, p = 0.4069)."
+
+
+
+
+
+library(pROC)
+
+roc_model8 <- roc(
+  dep_numeric,
+  fitted(model8)
+)
+
+auc(roc_model8)
+
+ci.auc(roc_model8)
+
+# Area under the curve: 0.8139, 95% CI: 0.749-0.8788 (DeLong)
+
+
+
+#The final (model8) multivariable logistic regression model demonstrated good discriminative ability, with an area under the receiver operating characteristic curve (AUC) of 0.814 (95% CI: 0.749-0.8788). Model calibration was assessed using the Hosmer–Lemeshow goodness-of-fit test, which indicated adequate calibration (χ² = 8.2768, df = 8, p = 0.4069). No evidence of multicollinearity was observed, with all GVIF-adjusted values below 1.28.
+
+
+firth_model <- logistf(
+  Depression_PLWHAS ~ Sex + Drugs_12months + Ethnicity +
+    Marital_3cat + Income_group2 + Family_occupation2 +
+    Tobacco_consumption + Discrimination_Society,
+  data = dataset_unique
+)
+
+summary(firth_model)
+
+firth_results <- data.frame(
+  Variable = names(coef(firth_model)),
+  OR = exp(coef(firth_model)),
+  CI_lower = exp(firth_model$ci.lower),
+  CI_upper = exp(firth_model$ci.upper),
+  P_value = firth_model$prob
+)
+
+print(firth_results)
+#Sensitivity analysis using Firth's penalized logistic regression produced estimates broadly consistent with those from conventional logistic regression. The direction and magnitude of the associations were similar, and the same factors—divorced/separated marital status, lower income, tobacco consumption, and perceived discrimination—remained statistically associated with depression. The association between drug use and depression remained positive but imprecise and did not reach statistical significance.
+
+```
+#### The final multivariable logistic regression model demonstrated good discrimination (AUC = 0.814, 95% CI 0.749–0.879) and adequate calibration (Hosmer–Lemeshow χ² = 8.28, df = 8, p = 0.4069). And there is no evidence of multicollinearity since GVIF-adjusted values below 1.28. Sensitivity analysis using Firth's penalized logistic regression yielded broadly similar estimates to the conventional logistic regression model. Divorced/separated/widowed marital status (OR 2.85, 95% CI 1.24–6.69), income ≤ 10,000 NRP (OR 2.68, 95% CI 1.18–6.38), tobacco consumption (OR 4.39, 95% CI 1.91–10.61), and perceived discrimination (OR 2.38, 95% CI 1.12–5.03) remained statistically associated with depression. Drug use remained positively associated but was imprecisely estimated (OR 3.50, 95% CI 0.79–14.59; p=0.096). Overall, the direction and magnitude of associations were consistent with the primary logistic regression analysis.
+
+```{R Multiavarible model,echo=TRUE,message=FALSE, warning=FALSE}
+
+#####
+## model4 <- glm(Depression_PLWHAS ~ Drugs_12months + Ethnicity + Marital_3cat + Income_group2 + Family_occupation2 + Tobacco_consumption + Discrimination_Society  , data = dataset_unique, family = binomial())
+
+library(purrr)
+
+predictors <- c("Sex","Ethnicity","Marital_3cat","Income_group2","Family_occupation2","Discrimination_Society","Drugs_12months","Tobacco_consumption")
+
+
+outcome_var <- "Depression_PLWHAS"
+# COR models
+cor_tables <- map(predictors, function(var) {
+
+  fit <- glm(
+    as.formula(paste(outcome_var, "~", var)),
+    data = dataset_unique,
+    family = binomial()
+  )
+
+  tbl_regression(fit, exponentiate = TRUE) %>%
+    modify_header(label ~ "**Variable**")
+})
+
+# AOR model
+aor_model <- glm(
+  as.formula(paste(outcome_var, "~", paste(predictors, collapse = " + "))),
+  data = dataset_unique,
+  family = binomial()
+)
+
+aor_table <- tbl_regression(aor_model, exponentiate = TRUE) %>%
+  modify_header(label ~ "**Variable**") %>%
+  modify_caption("Adjusted Odds Ratios (AOR)")
+
+# Combine
+combined_table <- tbl_merge(
+  tbls = list(tbl_stack(cor_tables), aor_table),
+  tab_spanner = c("**Crude OR (95% CI)**", "**Adjusted OR (95% CI)**")
+)
+
+# Export
+
+as_flex_table(combined_table) %>%
+  save_as_docx(path = "COR_AOR_All_Variables.docx")
+
+combined_table
+
+```
+#### From multivariable logistic regression model, Divorced/separated/widowed participants had 3.05 times significantly higher odds of the depressive symptoms than married participants (AOR = 3.05, 95% CI: 1.29-7.35, p = 0.012), while the odds of outcomes were 2.54 times higher for Un-married participant (AOR = 2.54, 95% CI: 0.77-7.86, p = 0.11) than married however was not statistically significant. For monthly income, ≤10,000 NRP had 2.89 fold higher odds of depressive symptoms than those with an income >10,000 NRP (AOR: 2.89, 95% CI: 1.24-7.12, p = 0.017) of outcomes than those who had monthly income above 10,000. Participants who had perceived discrimination had two and half times (AOR: 2.49, 95% CI:1.14-5.40, p =0.021) higher odds of depressive symptoms than those did not reported perceiving discrimination. Among Tobacco consumption, participant who had consumed current tobacco product were 4.84 times (AOR: 4.84, 95% CI: 2.04-12.1, p =0.001) had higher odds of depressive symptoms than those did not reported consuming tobacco product currently.
+
+#### Male participant had 1.87 times higher the odds of depressive symptoms than female (AOR:1.87, 95% CI: 0.76-4.73, p = 0.20).Participant from Dalit ethnicity had 2 times higher odds depressive symptoms than Non-Dalit (AOR 2.0, 95%,CI: 0.89-4.42, p = 0.089). Participant belonging from family with labor occupation had 1.85 times higher odds of depressive symptoms than non-labor family occupation  (AOR: 1.85, 95% CI : 0.78-4.32, p = 0.20). Participant reporting drug use with in 12 months had 3.65 times higher odds of depressive symptoms than who didnot (AOR: 3.65, 95% CI: 0.75, 16.5, p =0.094 ).However these odd ratio were not statistically significant after adjustment. 
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
